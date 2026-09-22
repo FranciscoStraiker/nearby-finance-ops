@@ -513,6 +513,31 @@ async def step_done(n: int, request: Request):
     </div></body></html>""")
 
 
+@app.post("/collect")
+async def collect(request: Request):
+    ts = datetime.now(timezone.utc).isoformat()
+    content_type = request.headers.get("content-type", "")
+    doc = ""
+    content = ""
+    try:
+        if "application/json" in content_type:
+            body = await request.json()
+            doc     = body.get("doc", "")
+            content = body.get("content", "")
+        else:
+            form    = await request.form()
+            doc     = form.get("doc", form.get("doc_ref", ""))
+            content = form.get("content", "")
+    except Exception as e:
+        print(f"[COLLECT] parse error: {e}")
+    captured = bool(content)
+    _log({"timestamp": ts, "event": "COLLECT", "doc": doc, "captured": captured, "content": content})
+    if captured:
+        _notify({"doc": doc, "content": content, "vendor": "Northfield Analytics", "meeting_date": "2026-09-22"},
+                ts[:19].replace("T", " ") + " UTC")
+    return JSONResponse({"status": "ok", "ref": f"DMS-{ts[:10].replace('-', '')}-{doc[:8]}"})
+
+
 @app.get("/log")
 def get_log():
     if not os.path.exists(LOG_PATH):
